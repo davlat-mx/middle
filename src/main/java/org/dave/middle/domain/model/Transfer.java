@@ -23,7 +23,7 @@ public final class Transfer {
     private final Corridor corridor;
     private final LocalDateTime createdAt;
 
-    private TransferStatus status;
+    private volatile TransferStatus status;
 
     public static Transfer create(String senderId, String receiverId, Money money, Corridor corridor) {
         return create(UUID.randomUUID().toString(), senderId, receiverId, money, corridor);

@@ -6,19 +6,27 @@ import org.dave.middle.domain.model.Transfer;
 import org.dave.middle.domain.rule.ValidationEngine;
 import org.dave.middle.domain.vo.Corridor;
 import org.dave.middle.domain.vo.Money;
+import org.dave.middle.queue.ProcessorStats;
+import org.dave.middle.queue.RetryPolicy;
+import org.dave.middle.queue.TransferExecutor;
+import org.dave.middle.queue.TransferQueueProcessor;
 import org.dave.middle.repository.TransferRepository;
 import org.dave.middle.service.ReportService;
 import org.dave.middle.service.TransferService;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 public class DemoRunner implements CommandLineRunner {
 
     @Override
-    public void run(String... args) {
+    public void run(String... args) throws InterruptedException {
         TransferRepository repository = new TransferRepository();
         TransferService transferService = new TransferService(ValidationEngine.withDefaults(), repository);
         ReportService reportService = new ReportService(repository);
@@ -63,5 +71,47 @@ public class DemoRunner implements CommandLineRunner {
                 System.out.printf("  %s: %s%n",
                         accepted ? "принятые " : "отклонённые",
                         transfers.stream().map(Transfer::getId).sorted().toList()));
+
+        runQueueDemo();
+    }
+
+    // M2: фоновая обработка очереди на virtual threads
+    private void runQueueDemo() throws InterruptedException {
+        System.out.println();
+        System.out.println("=== M2: фоновая обработка очереди (virtual threads) ===");
+
+        TransferRepository queueRepo = new TransferRepository();
+
+        Map<String, Integer> attempts = new ConcurrentHashMap<>();
+        TransferExecutor flaky = transfer -> {
+            int n = attempts.merge(transfer.getId(), 1, Integer::sum);
+            if (transfer.getId().equals("q-2") && n < 3) {
+                throw new IllegalStateException("временный сбой сети, попытка " + n);
+            }
+        };
+
+        List<Transfer> jobs = List.of(
+                Transfer.create("q-1", "c1", "c2",
+                        Money.of("100", Currency.USD), Corridor.of(Country.UZ, Country.KZ)),
+                Transfer.create("q-2", "c3", "c4",
+                        Money.of("200", Currency.USD), Corridor.of(Country.UZ, Country.KZ)),
+                Transfer.create("q-3", "c5", "c5",
+                        Money.of("300", Currency.USD), Corridor.of(Country.UZ, Country.KZ)));
+
+        try (TransferQueueProcessor processor = new TransferQueueProcessor(
+                ValidationEngine.withDefaults(), queueRepo, flaky, RetryPolicy.withDefaults())) {
+            processor.start();
+            jobs.forEach(processor::enqueue);
+            processor.enqueue(jobs.get(0));
+            processor.awaitEmpty(Duration.ofSeconds(5));
+
+            queueRepo.findAll().stream()
+                    .sorted(Comparator.comparing(Transfer::getId))
+                    .forEach(t -> System.out.printf("  %s -> %s%n", t.getId(), t.getStatus()));
+
+            ProcessorStats.Snapshot snap = processor.stats().snapshot();
+            System.out.printf("  итог: успешно=%d, отклонено=%d, повторов=%d, дубликатов=%d%n",
+                    snap.succeeded(), snap.failed(), snap.retries(), snap.duplicates());
+        }
     }
 }
