@@ -1,13 +1,11 @@
 package org.dave.middle;
 
+import org.dave.middle.support.IntegrationTest;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 
-@SpringBootTest
-class MiddleApplicationTests {
+class MiddleApplicationTests extends IntegrationTest {
 
     @Test
     void contextLoads() {
     }
-
 }

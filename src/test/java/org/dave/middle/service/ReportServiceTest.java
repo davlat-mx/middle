@@ -4,13 +4,15 @@ import org.dave.middle.domain.model.Country;
 import org.dave.middle.domain.model.Currency;
 import org.dave.middle.domain.model.Transfer;
 import org.dave.middle.domain.model.TransferStatus;
-import org.dave.middle.domain.rule.ValidationEngine;
 import org.dave.middle.domain.vo.Corridor;
 import org.dave.middle.domain.vo.Money;
 import org.dave.middle.repository.TransferRepository;
+import org.dave.middle.support.IntegrationTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.EnumMap;
@@ -20,20 +22,21 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
-class ReportServiceTest {
+@Transactional
+class ReportServiceTest extends IntegrationTest {
 
     private static final Corridor UZ_RU = Corridor.of(Country.UZ, Country.RU);
     private static final Corridor UZ_KZ = Corridor.of(Country.UZ, Country.KZ);
 
+    @Autowired
     private TransferRepository repository;
+    @Autowired
+    private TransferService transferService;
+    @Autowired
     private ReportService reportService;
 
     @BeforeEach
     void setUp() {
-        repository = new TransferRepository();
-        TransferService transferService = new TransferService(ValidationEngine.withDefaults(), repository);
-        reportService = new ReportService(repository);
-
         List.of(
                 Transfer.create("t-1", "a", "b", Money.of("100", Currency.UZS), UZ_RU),
                 Transfer.create("t-2", "c", "d", Money.of("200.50", Currency.RUB), UZ_RU),
@@ -43,7 +46,9 @@ class ReportServiceTest {
                 Transfer.create("t-6", "j", "k", Money.of("600", Currency.RUB), UZ_KZ)    // валюта не та
         ).forEach(transferService::submit);
 
-        repository.findById("t-1").orElseThrow().success();
+        Transfer t1 = repository.findById("t-1").orElseThrow();
+        t1.success();
+        repository.save(t1);
     }
 
     @Test

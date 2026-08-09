@@ -11,9 +11,11 @@ import org.dave.middle.queue.RetryPolicy;
 import org.dave.middle.queue.TransferExecutor;
 import org.dave.middle.queue.TransferQueueProcessor;
 import org.dave.middle.repository.TransferRepository;
+import lombok.RequiredArgsConstructor;
 import org.dave.middle.service.ReportService;
 import org.dave.middle.service.TransferService;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -23,14 +25,17 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Component
+@Profile("!test")
+@RequiredArgsConstructor
 public class DemoRunner implements CommandLineRunner {
+
+    private final TransferRepository repository;
+    private final TransferService transferService;
+    private final ReportService reportService;
+    private final ValidationEngine validationEngine = ValidationEngine.withDefaults(); // для очереди M2; не бин
 
     @Override
     public void run(String... args) throws InterruptedException {
-        TransferRepository repository = new TransferRepository();
-        TransferService transferService = new TransferService(ValidationEngine.withDefaults(), repository);
-        ReportService reportService = new ReportService(repository);
-
         List<Transfer> incoming = List.of(
                 Transfer.create("t-1", "client-1", "client-2",
                         Money.of("1500000", Currency.UZS), Corridor.of(Country.UZ, Country.RU)),
@@ -80,8 +85,6 @@ public class DemoRunner implements CommandLineRunner {
         System.out.println();
         System.out.println("=== M2: фоновая обработка очереди (virtual threads) ===");
 
-        TransferRepository queueRepo = new TransferRepository();
-
         Map<String, Integer> attempts = new ConcurrentHashMap<>();
         TransferExecutor flaky = transfer -> {
             int n = attempts.merge(transfer.getId(), 1, Integer::sum);
@@ -99,13 +102,14 @@ public class DemoRunner implements CommandLineRunner {
                         Money.of("300", Currency.USD), Corridor.of(Country.UZ, Country.KZ)));
 
         try (TransferQueueProcessor processor = new TransferQueueProcessor(
-                ValidationEngine.withDefaults(), queueRepo, flaky, RetryPolicy.withDefaults())) {
+                validationEngine, repository, flaky, RetryPolicy.withDefaults())) {
             processor.start();
             jobs.forEach(processor::enqueue);
             processor.enqueue(jobs.get(0));
             processor.awaitEmpty(Duration.ofSeconds(5));
 
-            queueRepo.findAll().stream()
+            repository.findAll().stream()
+                    .filter(t -> t.getId().startsWith("q-"))
                     .sorted(Comparator.comparing(Transfer::getId))
                     .forEach(t -> System.out.printf("  %s -> %s%n", t.getId(), t.getStatus()));
 

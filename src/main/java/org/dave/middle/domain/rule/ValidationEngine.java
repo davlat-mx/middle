@@ -13,10 +13,14 @@ public final class ValidationEngine {
     }
 
     public static ValidationEngine withDefaults() {
-        return new ValidationEngine(List.of(
+        return new ValidationEngine(defaultRules());
+    }
+
+    private static List<TransferRule> defaultRules() {
+        return List.of(
                 CurrencyAllowedRule.withDefaults(),
                 new SameClientRule()
-        ));
+        );
     }
 
     public List<String> validate(Transfer transfer) {

@@ -7,10 +7,16 @@ import org.dave.middle.domain.model.TransferStatus;
 import org.dave.middle.domain.rule.ValidationEngine;
 import org.dave.middle.domain.vo.Corridor;
 import org.dave.middle.domain.vo.Money;
+import org.dave.middle.persistence.entity.ClientEntity;
+import org.dave.middle.persistence.repository.ClientEntityRepository;
+import org.dave.middle.persistence.repository.TransferEntityRepository;
 import org.dave.middle.repository.TransferRepository;
+import org.dave.middle.support.IntegrationTest;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Duration;
 import java.util.concurrent.ConcurrentHashMap;
@@ -19,16 +25,33 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class TransferQueueProcessorTest {
+class TransferQueueProcessorTest extends IntegrationTest {
 
     private static final RetryPolicy FAST = new RetryPolicy(3, Duration.ofMillis(1));
-    private static final Duration WAIT = Duration.ofSeconds(5);
+    private static final Duration WAIT = Duration.ofSeconds(10);
 
+    @Autowired
     private TransferRepository repository;
+    @Autowired
+    private TransferEntityRepository transfers;
+    @Autowired
+    private ClientEntityRepository clients;
 
     @BeforeEach
     void setUp() {
-        repository = new TransferRepository();
+        cleanDb();
+        clients.save(new ClientEntity("a", "Alice", Country.UZ));
+        clients.save(new ClientEntity("b", "Bob", Country.KZ));
+    }
+
+    @AfterEach
+    void tearDown() {
+        cleanDb();
+    }
+
+    private void cleanDb() {
+        transfers.deleteAll();
+        clients.deleteAll();
     }
 
     private static Transfer ok(String id) {

@@ -5,6 +5,7 @@ import org.dave.middle.domain.model.Transfer;
 import org.dave.middle.domain.model.TransferStatus;
 import org.dave.middle.domain.vo.Corridor;
 import org.dave.middle.repository.TransferRepository;
+import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.util.EnumMap;
@@ -12,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+@Service
 @RequiredArgsConstructor
 public class ReportService {
 

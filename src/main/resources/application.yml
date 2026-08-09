@@ -1,0 +1,15 @@
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/remitcore}
+    username: ${DB_USER:remitcore}
+    password: ${DB_PASSWORD:remitcore}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        generate_statistics: true
+        format_sql: true
+  flyway:
+    enabled: true

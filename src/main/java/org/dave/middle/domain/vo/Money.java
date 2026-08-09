@@ -3,8 +3,8 @@ package org.dave.middle.domain.vo;
 import org.dave.middle.domain.model.Currency;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.Objects;
-
 
 public record Money(BigDecimal amount, Currency currency) {
 
@@ -19,7 +19,7 @@ public record Money(BigDecimal amount, Currency currency) {
         if (amount.stripTrailingZeros().scale() > MAX_SCALE) {
             throw new IllegalArgumentException("Не больше " + MAX_SCALE + " знаков после запятой, получено: " + amount);
         }
-        amount = amount.setScale(MAX_SCALE, java.math.RoundingMode.UNNECESSARY);
+        amount = amount.setScale(MAX_SCALE, RoundingMode.UNNECESSARY);
     }
 
     public static Money of(String amount, Currency currency) {

@@ -4,28 +4,26 @@ import org.dave.middle.domain.model.Country;
 import org.dave.middle.domain.model.Currency;
 import org.dave.middle.domain.model.Transfer;
 import org.dave.middle.domain.model.TransferStatus;
-import org.dave.middle.domain.rule.ValidationEngine;
 import org.dave.middle.domain.vo.Corridor;
 import org.dave.middle.domain.vo.Money;
 import org.dave.middle.repository.TransferRepository;
-import org.junit.jupiter.api.BeforeEach;
+import org.dave.middle.support.IntegrationTest;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class TransferServiceTest {
+@Transactional
+class TransferServiceTest extends IntegrationTest {
 
+    @Autowired
     private TransferRepository repository;
+    @Autowired
     private TransferService service;
-
-    @BeforeEach
-    void setUp() {
-        repository = new TransferRepository();
-        service = new TransferService(ValidationEngine.withDefaults(), repository);
-    }
 
     @Test
     @DisplayName("валидная заявка уходит в PERFORM и сохраняется")
