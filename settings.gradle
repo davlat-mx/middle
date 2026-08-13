@@ -1,1 +1,3 @@
 rootProject.name = 'middle'
+
+include 'observability-spring-boot-starter'

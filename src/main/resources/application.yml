@@ -1,8 +1,8 @@
 spring:
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/remitcore}
-    username: ${DB_USER:remitcore}
-    password: ${DB_PASSWORD:remitcore}
+    username: postgres
+    password: postgres
   jpa:
     hibernate:
       ddl-auto: validate
@@ -13,3 +13,17 @@ spring:
         format_sql: true
   flyway:
     enabled: true
+
+logging:
+  pattern:
+    level: "%5p [%X{correlationId:-}]"
+
+middle:
+  observability:
+    header-name: X-Correlation-Id
+    logging:
+      enabled: true
+      ignored-paths:
+        - /actuator/**
+    idempotency:
+      enabled: true

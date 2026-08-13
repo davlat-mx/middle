@@ -14,6 +14,7 @@ import org.dave.middle.repository.TransferRepository;
 import lombok.RequiredArgsConstructor;
 import org.dave.middle.service.ReportService;
 import org.dave.middle.service.TransferService;
+import org.dave.observability.IdempotencyGuard;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
@@ -32,6 +33,7 @@ public class DemoRunner implements CommandLineRunner {
     private final TransferRepository repository;
     private final TransferService transferService;
     private final ReportService reportService;
+    private final IdempotencyGuard idempotencyGuard; // из стартера (авто-конфиг)
     private final ValidationEngine validationEngine = ValidationEngine.withDefaults(); // для очереди M2; не бин
 
     @Override
@@ -102,7 +104,7 @@ public class DemoRunner implements CommandLineRunner {
                         Money.of("300", Currency.USD), Corridor.of(Country.UZ, Country.KZ)));
 
         try (TransferQueueProcessor processor = new TransferQueueProcessor(
-                validationEngine, repository, flaky, RetryPolicy.withDefaults())) {
+                validationEngine, repository, flaky, RetryPolicy.withDefaults(), idempotencyGuard)) {
             processor.start();
             jobs.forEach(processor::enqueue);
             processor.enqueue(jobs.get(0));

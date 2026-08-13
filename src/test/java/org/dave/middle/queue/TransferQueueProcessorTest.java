@@ -12,6 +12,7 @@ import org.dave.middle.persistence.repository.ClientEntityRepository;
 import org.dave.middle.persistence.repository.TransferEntityRepository;
 import org.dave.middle.repository.TransferRepository;
 import org.dave.middle.support.IntegrationTest;
+import org.dave.observability.InMemoryIdempotencyGuard;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -60,7 +61,8 @@ class TransferQueueProcessorTest extends IntegrationTest {
     }
 
     private TransferQueueProcessor processor(TransferExecutor executor) {
-        return new TransferQueueProcessor(ValidationEngine.withDefaults(), repository, executor, FAST);
+        return new TransferQueueProcessor(
+                ValidationEngine.withDefaults(), repository, executor, FAST, new InMemoryIdempotencyGuard());
     }
 
     @Test

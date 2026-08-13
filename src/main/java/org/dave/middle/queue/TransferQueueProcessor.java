@@ -1,34 +1,33 @@
 package org.dave.middle.queue;
 
+import lombok.extern.slf4j.Slf4j;
 import org.dave.middle.domain.model.Transfer;
 import org.dave.middle.domain.rule.ValidationEngine;
 import org.dave.middle.repository.TransferRepository;
+import org.dave.observability.CorrelationContext;
+import org.dave.observability.IdempotencyGuard;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicLong;
 
+@Slf4j
 public final class TransferQueueProcessor implements AutoCloseable {
 
     private final ValidationEngine validationEngine;
     private final TransferRepository repository;
     private final TransferExecutor executor;
     private final RetryPolicy retryPolicy;
+    private final IdempotencyGuard idempotency;
     private final ProcessorStats stats;
 
     private final BlockingQueue<Transfer> queue = new LinkedBlockingQueue<>();
     private final ExecutorService workers = Executors.newVirtualThreadPerTaskExecutor();
 
-    // идемпотентность: id, которые уже взяли в работу
-    private final Set<String> claimed = ConcurrentHashMap.newKeySet();
-
-    // сколько заявок ещё не доработано — для awaitEmpty
     private final AtomicLong pending = new AtomicLong();
     private final Object idleLock = new Object();
 
@@ -38,11 +37,13 @@ public final class TransferQueueProcessor implements AutoCloseable {
     public TransferQueueProcessor(ValidationEngine validationEngine,
                                   TransferRepository repository,
                                   TransferExecutor executor,
-                                  RetryPolicy retryPolicy) {
+                                  RetryPolicy retryPolicy,
+                                  IdempotencyGuard idempotency) {
         this.validationEngine = validationEngine;
         this.repository = repository;
         this.executor = executor;
         this.retryPolicy = retryPolicy;
+        this.idempotency = idempotency;
         this.stats = new ProcessorStats();
     }
 
@@ -78,20 +79,25 @@ public final class TransferQueueProcessor implements AutoCloseable {
     }
 
     private void handle(Transfer transfer) {
-        try {
-            if (!claimed.add(transfer.getId())) {
-                stats.duplicate();
-                return;
+        CorrelationContext.run(transfer.getId(), () -> {
+            try {
+                if (idempotency.claim(transfer.getId())) {
+                    log.info("взяли заявку в работу");
+                    process(transfer);
+                } else {
+                    log.info("дубликат заявки — пропускаем");
+                    stats.duplicate();
+                }
+            } finally {
+                finish();
             }
-            process(transfer);
-        } finally {
-            finish();
-        }
+        });
     }
 
     private void process(Transfer transfer) {
         List<String> errors = validationEngine.validate(transfer);
         if (!errors.isEmpty()) {
+            log.warn("отклонено бизнес-правилами: {}", errors);
             transfer.fail();
             repository.save(transfer);
             stats.failed();
@@ -106,15 +112,18 @@ public final class TransferQueueProcessor implements AutoCloseable {
                 executor.execute(transfer);
                 transfer.success();
                 repository.save(transfer);
+                log.info("успешно обработана с попытки {}", attempt);
                 stats.succeeded();
                 return;
             } catch (RuntimeException e) {
                 if (attempt == retryPolicy.maxAttempts()) {
+                    log.error("исчерпаны попытки ({}) — FAILED", retryPolicy.maxAttempts());
                     transfer.fail();
                     repository.save(transfer);
                     stats.failed();
                     return;
                 }
+                log.warn("попытка {} неуспешна ({}), повтор", attempt, e.getMessage());
                 stats.retry();
                 sleep(retryPolicy.backoffFor(attempt));
             }

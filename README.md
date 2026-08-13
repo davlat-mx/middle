@@ -83,8 +83,8 @@ org.dave.middle
 | Гарантия | Как сделано |
 |---|---|
 | Virtual threads | `Executors.newVirtualThreadPerTaskExecutor()` + диспетчер на `Thread.ofVirtual()` |
-| Потокобезопасное состояние | `ConcurrentHashMap`, `AtomicLong`-счётчики (`ProcessorStats`), claimed-множество |
-| Идемпотентность | `claimed.add(id)` — один id обрабатывается не более раза |
+| Потокобезопасное состояние | `ConcurrentHashMap`, `AtomicLong`-счётчики (`ProcessorStats`) |
+| Идемпотентность | один id обрабатывается не более раза (в M4 вынесено в `IdempotencyGuard`, см. ниже) |
 | Повторы с backoff | `RetryPolicy` — до N попыток, экспоненциальная пауза; отказ бизнес-правил не повторяется |
 
 `TransferExecutor` — точка внешнего «проведения» перевода (может временно падать → повтор).
@@ -129,3 +129,41 @@ resources/db/migration  V1__init.sql, V2__indexes.sql
 (`@SpringBootTest` + `@Transactional` откат): Flyway-схема и аудит, Specifications, Pageable,
 проекции, `@Query`, оборот/native-count, N+1 vs `@EntityGraph` (по счётчику запросов Hibernate),
 конфликт `@Version`, roundtrip доменного порта.
+
+---
+
+# M4 — Spring internals + собственный стартер
+
+Сквозная функциональность (correlation-id / логирование / идемпотентность) вынесена в
+**отдельный Spring Boot starter** — Gradle-подпроект `observability-spring-boot-starter`,
+который приложение подключает как зависимость (`implementation project(...)`).
+Пакет `org.dave.observability`, префикс настроек `middle.observability`.
+
+```
+observability-spring-boot-starter
+├── ObservabilityAutoConfiguration   @AutoConfiguration, набор @ConditionalOn*
+├── ObservabilityProperties          @ConfigurationProperties("middle.observability")
+├── CorrelationContext               MDC-обёртка run(id, task) — для очереди и HTTP
+├── CorrelationIdFilter              заголовок X-Correlation-Id -> MDC на время запроса
+├── RequestLoggingFilter             одна строка на запрос: метод, путь, статус, время
+├── IdempotencyGuard / InMemoryIdempotencyGuard   защита от повторной обработки по ключу
+└── META-INF/spring/…AutoConfiguration.imports    регистрация автоконфига
+```
+
+| Механизм Spring | Где показан |
+|---|---|
+| Авто-конфигурация | `@AutoConfiguration` + `AutoConfiguration.imports` (не `spring.factories`) |
+| Условное подключение | `@ConditionalOnWebApplication`/`OnClass` (фильтры), `@ConditionalOnProperty` (флаги), `@ConditionalOnMissingBean` (переопределение) |
+| Типобезопасная конфигурация | `@ConfigurationProperties` + `spring-boot-configuration-processor` (IDE-метаданные) |
+| DI / замена реализации | `IdempotencyGuard` — бин из стартера, потребитель может подставить свой (Redis и т.п.) |
+
+**Интеграция в сервис:** `TransferQueueProcessor` больше не держит свой inline `claimed`-набор —
+принимает `IdempotencyGuard` и оборачивает обработку заявки в `CorrelationContext.run(id, …)`,
+поэтому все `log.*` внутри воркера помечены id заявки. В `application.yml` паттерн лога
+`logging.pattern.level: "%5p [%X{correlationId:-}]"` выводит этот id в каждой строке —
+видно жизненный путь заявки (взяли → повтор → успех / дубликат) и что параллельные
+virtual-thread воркеры не путаются между собой.
+
+**Тесты** `ObservabilityAutoConfigurationTest` — на `ApplicationContextRunner` (без Docker):
+бин идемпотентности поднимается по умолчанию, гаснет по `enabled=false`, уступает
+пользовательскому бину через `@ConditionalOnMissingBean`.
