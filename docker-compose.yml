@@ -7,3 +7,20 @@ services:
       POSTGRES_PASSWORD: remitcore
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U remitcore -d remitcore"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/remitcore
+      DB_USER: remitcore
+      DB_PASSWORD: remitcore
+    ports:
+      - "8080:8080"

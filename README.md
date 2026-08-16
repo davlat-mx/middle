@@ -167,3 +167,65 @@ virtual-thread воркеры не путаются между собой.
 **Тесты** `ObservabilityAutoConfigurationTest` — на `ApplicationContextRunner` (без Docker):
 бин идемпотентности поднимается по умолчанию, гаснет по `enabled=false`, уступает
 пользовательскому бину через `@ConditionalOnMissingBean`.
+
+---
+
+# M5 — Контейнеризация (Dockerfile)
+
+Multi-stage [`Dockerfile`](Dockerfile): сборка на `eclipse-temurin:21-jdk`, рантайм на
+**distroless** `gcr.io/distroless/java21-debian12:nonroot` — минимальный образ без shell и
+пакетного менеджера, процесс идёт под непривилегированным пользователем (uid 65532).
+
+| Приём | Как |
+|---|---|
+| Multi-stage | стадия `build` (Gradle → `bootJar`) отдельно от рантайма; в финальный образ едет только jar |
+| Layer caching | сначала копируем build-скрипты и тянем зависимости, потом исходники + BuildKit `--mount=type=cache` на `/root/.gradle` |
+| Непривилегированный запуск | тег `:nonroot` distroless |
+| JVM под контейнер | `JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=75.0 …` — куча в % от cgroup-лимита, а не фиксированный `-Xmx` |
+| Лёгкий контекст | [`.dockerignore`](.dockerignore) исключает `build/`, `.gradle/`, `.git/`, IDE |
+
+Единственная правка сборки — отключён «plain»-jar (`tasks.named('jar') { enabled = false }`),
+чтобы в `build/libs` лежал ровно один артефакт. Локальный запуск:
+
+```bash
+docker compose up --build      # app (:8080) + postgres, app ждёт готовности БД
+```
+
+---
+
+# M6 — Kubernetes / minikube
+
+Манифесты в [`k8s/`](k8s): приложение + Postgres в кластере, конфиг через ConfigMap/Secret,
+health-пробы через **Spring Boot Actuator**.
+
+```
+k8s
+├── config.yaml     ConfigMap (DB_URL, DB_NAME) + Secret (DB_USER, DB_PASSWORD)
+├── postgres.yaml   Deployment (emptyDir) + Service middle-postgres:5432
+└── app.yaml        Deployment (probes, requests/limits) + Service NodePort:8080
+```
+
+| Элемент | Роль у middle |
+|---|---|
+| ConfigMap / Secret | `DB_URL`/`DB_NAME` (несекретно) и креды Postgres (секрет); прокидываются в под через `envFrom` |
+| readinessProbe | `/actuator/health/readiness` (группа включает `db`) — под не получает трафик, пока БД недоступна |
+| livenessProbe | `/actuator/health/liveness` — зависший под перезапускается |
+| startupProbe | прикрывает медленный старт (boot + Flyway), до ~60s, чтобы liveness не убил под преждевременно |
+| requests/limits | `limits.memory: 1Gi` — от него JVM (`MaxRAMPercentage=75`) считает heap; связка с M5 |
+
+Actuator добавлен ради проб (`spring-boot-starter-actuator` + группа `readiness: readinessState,db`).
+Развёртывание в minikube (образ собирается **внутрь** демона minikube, поэтому реестр не нужен):
+
+```bash
+minikube start
+eval $(minikube docker-env)              # переключить docker на демон minikube
+docker build -t middle:latest .          # образ виден кластеру (pullPolicy=IfNotPresent)
+kubectl apply -f k8s/                     # config/secret + postgres + app
+kubectl get pods -w                       # ждём Running + READY 1/1
+kubectl logs -f deploy/middle-app         # логи (там же correlation-id из M4)
+minikube service middle-app               # открыть сервис в браузере
+# альтернатива: kubectl port-forward svc/middle-app 8080:8080
+```
+
+Диагностика: `kubectl describe pod <p>` (события, pull, статус проб),
+`kubectl rollout status deploy/middle-app`, `kubectl get deploy,svc`.
