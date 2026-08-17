@@ -12,6 +12,13 @@ spec:
       labels:
         app: middle-app
     spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - until nc -z middle-postgres 5432; do echo "waiting for postgres"; sleep 2; done
       containers:
         - name: app
           image: middle:latest
@@ -28,7 +35,7 @@ spec:
               path: /actuator/health/readiness
               port: 8080
             periodSeconds: 5
-            failureThreshold: 12
+            failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness

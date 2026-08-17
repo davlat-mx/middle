@@ -98,5 +98,14 @@ jobs:
       - name: Wait for rollout
         run: |
           kubectl rollout status deployment/middle-postgres --timeout=120s
-          kubectl rollout status deployment/middle-app --timeout=180s
+          kubectl rollout status deployment/middle-app --timeout=240s
           kubectl get pods -o wide
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl get pods -o wide
+          kubectl describe deployment/middle-app
+          kubectl describe pods -l app=middle-app
+          kubectl logs -l app=middle-app --all-containers --tail=300 || true
+          kubectl get events --sort-by=.lastTimestamp | tail -50
